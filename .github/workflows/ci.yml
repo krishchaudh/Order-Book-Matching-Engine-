@@ -1,0 +1,54 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libgtest-dev libbenchmark-dev \
+            libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
+      - name: configure (Release, gRPC on)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DME_BUILD_GRPC=ON
+      - name: build
+        run: cmake --build build
+      - name: unit + differential tests
+        run: ./build/me_tests --gtest_brief=1
+      - name: benchmark smoke (validates trial state, not a performance gate)
+        run: ./build/me_bench --ops=200000 --trials=1 --workload=mixed && ./build/me_bench --ops=100000 --trials=1 --workload=shards --threads=2
+      - name: gRPC smoke
+        run: |
+          ./build/src/grpc/me_server --shards=2 --symbols=AAPL,MSFT & sleep 1
+          ./build/src/grpc/me_client demo AAPL
+          ./build/src/grpc/me_loadtest --concurrency=2 --duration=2 --warmup=1 --symbols=AAPL,MSFT --metrics=localhost:9100
+          curl -fs localhost:9100/metrics | grep -q me_operations_total
+          kill -TERM %1; wait %1
+  sanitizers:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix: { san: ["address,undefined", "thread"] }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build libgtest-dev
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DME_BUILD_GRPC=OFF -DME_BUILD_BENCHMARKS=OFF "-DME_SANITIZE=${{ matrix.san }}"
+      - run: cmake --build build
+      - run: ./build/me_tests --gtest_brief=1
+        env: { TSAN_OPTIONS: "halt_on_error=1", UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1", ASAN_OPTIONS: "detect_leaks=1" }
+  sidecar:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - run: cd sidecar && gofmt -l . && go vet ./... && go test ./...
+  docker:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f docker/Dockerfile.engine -t matching-engine:ci .
+      - run: docker build -f docker/Dockerfile.sidecar -t matching-engine-sidecar:ci .
+      - run: docker compose -f docker/docker-compose.yml config -q
