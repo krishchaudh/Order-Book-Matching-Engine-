@@ -43,7 +43,6 @@ using namespace me;
 using Clock = std::chrono::steady_clock;
 
 // ------------------------------------------------------------ allocation ----
-#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
 static std::atomic<uint64_t> g_allocs{0};
 static thread_local bool t_count_allocs = false;
 void* operator new(size_t n) {
@@ -71,6 +70,7 @@ struct Options {
   std::string json;
   int mix_insert = 60, mix_cancel = 30, mix_aggress = 10;
   bool quiet = false;
+  bool scramble_ids = false;  // --ids=scrambled: bijectively scrambled (random-looking) order ids
 };
 
 static Options parse(int argc, char** argv) {
@@ -96,6 +96,7 @@ static Options parse(int argc, char** argv) {
     else if ((v = val("--pin"))) { o.pin_set = true; o.pin = std::atoi(v); }
     else if ((v = val("--json"))) o.json = v;
     else if (a == "--quiet") o.quiet = true;
+    else if ((v = val("--ids"))) o.scramble_ids = std::string(v) == "scrambled";
     else if ((v = val("--mix"))) { std::sscanf(v, "%d,%d,%d", &o.mix_insert, &o.mix_cancel, &o.mix_aggress); }
     else if (a == "--help" || a == "-h") {
       std::puts("see header of benchmarks/bench_main.cpp for options");
@@ -151,9 +152,19 @@ struct Stream {
 
 // Generator that keeps a shadow engine so cancels target live orders and
 // aggressive orders really cross.
+
+// Pure insert workloads can leave every op resting, so size the pool for the
+// run instead of relying on the 4M default (pages are committed lazily).
+static BookConfig book_config(const Options& o) {
+  BookConfig c;
+  uint64_t need = static_cast<uint64_t>(o.prefill) + o.ops + 1024;
+  if (need > c.max_open_orders) c.max_open_orders = static_cast<uint32_t>(std::min<uint64_t>(need, (1ull << 31) - 1));
+  return c;
+}
+
 class Generator {
  public:
-  Generator(const Options& o, uint64_t seed, int symbols) : o_(o), rng_(seed), shadow_(BookConfig{}) {
+  Generator(const Options& o, uint64_t seed, int symbols) : o_(o), rng_(seed), shadow_(book_config(o)) {
     for (int s = 0; s < symbols; ++s) {
       shadow_.add_symbol("S" + std::to_string(s));
       mid_.push_back(10'000 + 100 * s);
@@ -274,7 +285,21 @@ class Generator {
     }
   }
 
-  OrderId next_id() { return ++last_id_; }
+  // Sequential ids model gateway-assigned ids; "scrambled" ids are a bijective
+  // permutation of them (multiply by an odd constant mod 2^bits) so the id
+  // space is identical in size but has no locality, stressing the id index.
+  OrderId next_id() {
+    OrderId k = ++last_id_;
+    if (!o_.scramble_ids) return k;
+    if (id_mask_ == 0) {
+      uint64_t need = static_cast<uint64_t>(o_.prefill) + o_.ops + 2;
+      uint64_t cap = 1;
+      while (cap < need) cap <<= 1;
+      id_mask_ = cap - 1;
+    }
+    return ((k * 0x9E3779B97F4A7C15ull) & id_mask_) + 1;
+  }
+  uint64_t id_mask_ = 0;
   SymbolId symbol_of(OrderId id) const { return id_symbol_[id]; }
 
   OrderId pick_live() {
@@ -294,7 +319,7 @@ class Generator {
   }
 
   void apply(const Op& op) {
-    if (alive_.size() <= last_id_ + 1) { alive_.resize((last_id_ + 1) * 2, 0); id_symbol_.resize((last_id_ + 1) * 2, 0); }
+    if (alive_.size() <= op.id) { alive_.resize((op.id + 1) * 2, 0); id_symbol_.resize((op.id + 1) * 2, 0); }
     trades_.clear();
     if (op.kind == 0) {
       id_symbol_[op.id] = op.symbol;
@@ -508,7 +533,7 @@ static void append_json(const Summary& s, const Options& o) {
 
 template <class Book>
 static Summary run_single(const Options& o, const std::string& name, const Stream& s, int symbols) {
-  EngineT<Book> eng(BookConfig{});
+  EngineT<Book> eng(book_config(o));
   for (int i = 0; i < symbols; ++i) eng.add_symbol("S" + std::to_string(i));
   std::vector<uint32_t> lat;
   std::vector<TrialResult> trials;
@@ -532,7 +557,7 @@ static Summary run_shards(const Options& o, const std::vector<Stream>& streams) 
   int T = static_cast<int>(streams.size());
   std::vector<std::unique_ptr<EngineT<Book>>> engines;
   for (int i = 0; i < T; ++i) {
-    engines.push_back(std::make_unique<EngineT<Book>>(BookConfig{}));
+    engines.push_back(std::make_unique<EngineT<Book>>(book_config(o)));
     for (int s = 0; s < o.symbols; ++s) engines.back()->add_symbol("S" + std::to_string(s));
   }
   std::vector<TrialResult> trials;
@@ -597,6 +622,7 @@ static Summary run_shards(const Options& o, const std::vector<Stream>& streams) 
 // in-process cost a gRPC handler pays on top of the book itself).
 static Summary run_queue(const Options& o, const Stream& s, bool pipelined) {
   ShardedEngineConfig cfg;
+  cfg.book = book_config(o);
   cfg.shards = 1;
   if (o.pin_set) cfg.cpu_affinity = {o.pin + 1};
   ShardedEngine se(cfg);

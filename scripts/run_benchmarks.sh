@@ -14,7 +14,7 @@ B=./build-bench/me_bench
   echo "# THP: $(cat /sys/kernel/mm/transparent_hugepage/enabled)"
   echo "# gcc: $(gcc --version | head -1)"
 } | tee "$OUT/env.txt"
-rm -f "$OUT/engine.jsonl"
+rm -f "$OUT/engine.jsonl"; cp /dev/null "$OUT/engine.txt"
 # 1. Throughput, all workloads, single pinned thread (no per-op clock reads).
 $B --ops="$OPS" --trials="$TRIALS" --pin=2 --json="$OUT/engine.jsonl" --workload=insert
 for w in cancel match partial mixed deep multisym; do $B --ops="$OPS" --trials="$TRIALS" --pin=2 --json="$OUT/engine.jsonl" --workload=$w --quiet; done
@@ -26,7 +26,12 @@ for t in 1 2 4 6 8; do $B --ops="$OPS" --trials="$TRIALS" --pin=0 --threads=$t -
 $B --ops=1000000 --trials="$TRIALS" --pin=2 --latency --json="$OUT/engine.jsonl" --workload=queue_sync --quiet
 $B --ops=1000000 --trials="$TRIALS" --pin=2 --json="$OUT/engine.jsonl" --workload=queue_pipelined --quiet
 # 5. Data-structure alternatives on the same mixed workload (baseline comparison).
-for b in map dense_std map_oa sortedvec reference; do
+for b in map dense_std map_oa sortedvec; do
   for w in insert cancel mixed deep; do $B --ops="$OPS" --trials=3 --pin=2 --book=$b --json="$OUT/engine.jsonl" --workload=$w --quiet; done
 done
+# The STL reference book cancels in O(n); it is a correctness oracle, so it is
+# only run at 200k ops to show the gap (minutes per trial at 5M).
+for w in insert cancel mixed deep; do $B --ops=200000 --prefill=20000 --trials=3 --pin=2 --book=reference --json="$OUT/engine.jsonl" --workload=$w --quiet; done
+# 6. Id-locality sensitivity: scrambled (random-looking) ids vs sequential.
+for w in insert cancel mixed deep; do $B --ops="$OPS" --trials=3 --pin=2 --ids=scrambled --json="$OUT/engine.jsonl" --workload=$w --quiet; done
 echo "results in $OUT/engine.jsonl"

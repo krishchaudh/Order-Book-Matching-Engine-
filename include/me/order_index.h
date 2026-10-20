@@ -11,6 +11,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "me/memory.h"
 #include "me/types.h"
 
 namespace me {
@@ -95,14 +96,32 @@ class OpenAddressOrderIndex {
     uint32_t pad_;
   };
 
+  // ME_OA_HASH selects the id->slot hash (benchmarked in docs/PERFORMANCE.md):
+  //   0 fibonacci: full mixing, no locality.
+  //   1 fold: locality-preserving; sequential ids form one long probe run,
+  //     which makes backward-shift deletes scan far (cancel -20%).
+  //   2 grouped (default): ids are mixed in groups of 4, so 4 consecutive
+  //     ids share one 64-byte cache line but groups are scattered; probe runs
+  //     stay short and sequential inserts touch 1 line per 4 orders.
+#ifndef ME_OA_HASH
+#define ME_OA_HASH 2
+#endif
   size_t slot_of(OrderId key) const {
+#if ME_OA_HASH == 0
     return static_cast<size_t>((key * 0x9E3779B97F4A7C15ull) >> shift_);
+#elif ME_OA_HASH == 1
+    uint64_t h = key ^ (key >> 12) ^ (key >> 24) ^ (key >> 36) ^ (key >> 48);
+    return static_cast<size_t>(h & mask_);
+#else
+    uint64_t g = ((key >> 2) * 0x9E3779B97F4A7C15ull) >> shift_;
+    return static_cast<size_t>(((g & ~uint64_t{3}) | (key & 3)) & mask_);
+#endif
   }
 
   void rehash(size_t new_cap) {
-    std::unique_ptr<Entry[], void (*)(void*)> old(table_.release(), std::free);
+    HugeArray<Entry> old = std::move(table_);
     size_t old_cap = cap_;
-    table_.reset(static_cast<Entry*>(std::calloc(new_cap, sizeof(Entry))));
+    table_ = huge_zeroed<Entry>(new_cap);
     cap_ = new_cap;
     mask_ = new_cap - 1;
     shift_ = 64;
@@ -112,7 +131,7 @@ class OpenAddressOrderIndex {
       if (old[i].key != 0) insert(old[i].key, old[i].value);
   }
 
-  std::unique_ptr<Entry[], void (*)(void*)> table_{nullptr, std::free};
+  HugeArray<Entry> table_{nullptr, HugeFree{0}};
   size_t cap_ = 0;
   size_t mask_ = 0;
   unsigned shift_ = 64;

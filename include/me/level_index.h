@@ -23,6 +23,7 @@
 #include <memory>
 #include <vector>
 
+#include "me/memory.h"
 #include "me/types.h"
 
 namespace me {
@@ -135,7 +136,7 @@ class DenseLevelIndex {
  public:
   explicit DenseLevelIndex(Price max_price)
       : cap_(static_cast<size_t>(max_price)),
-        levels_(static_cast<Level*>(std::calloc(cap_, sizeof(Level))), std::free),
+        levels_(huge_zeroed<Level>(cap_)),
         bitmap_(cap_) {}
 
   bool accepts(Price p) const { return p > 0 && static_cast<size_t>(p) < cap_; }
@@ -197,7 +198,7 @@ class DenseLevelIndex {
   }
 
   size_t cap_;
-  std::unique_ptr<Level[], void (*)(void*)> levels_;
+  HugeArray<Level> levels_;
   HierBitmap bitmap_;
   Price best_ = -1;
 };

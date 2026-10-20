@@ -96,8 +96,8 @@ struct Request {
 };
 
 struct SymbolRef {
-  uint32_t shard;
-  SymbolId local_id;
+  uint32_t shard = 0;
+  SymbolId local_id = 0;
 };
 
 struct ShardedEngineConfig {

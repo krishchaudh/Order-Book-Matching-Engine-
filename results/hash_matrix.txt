@@ -1,0 +1,13 @@
+# OpenAddressOrderIndex id->slot hash comparison. me_bench --ops=5000000 --trials=3 --pin=2 (median M ops/s)
+# Built with -DCMAKE_CXX_FLAGS=-DME_OA_HASH={0,1,2}; --ids=sequential (default) | scrambled
+# workload   ids         fib(0)   fold(1)  grouped(2, default)
+insert       sequential  12.678   52.010   21.835
+cancel       sequential   9.787    7.857    9.032
+mixed        sequential  19.727   15.509   19.629
+deep         sequential  11.673   11.139   12.312
+insert       scrambled   12.741   14.438   13.480
+cancel       scrambled   10.059   11.352    9.412
+mixed        scrambled   19.990   17.472   16.343 (min 12.585 max 18.315: noisy)
+deep         scrambled   10.372   10.246    8.850
+# Pre-sizing the index to max_open_orders (no rehash) with fib hash: insert 14.96 cancel 11.42 mixed 13.55 deep 11.14 -> rejected (mixed -35%).
+# mmap+MADV_HUGEPAGE storage alone (fib hash): insert 12.42 cancel 9.43 mixed 19.27 -> no measurable gain on this VM (AnonHugePages stayed 0 kB).
