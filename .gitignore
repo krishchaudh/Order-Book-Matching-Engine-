@@ -1,0 +1,10 @@
+build/
+build-*/
+*.o
+*.a
+perf.data*
+*.svg
+!docs/*.svg
+results/*.tmp
+sidecar/healthsidecar
+.cache/

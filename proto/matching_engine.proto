@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package me.v1;
+
+option go_package = "github.com/krishchaudh/matching-engine/proto/mev1;mev1";
+
+// Prices are integer ticks and quantities are integer lots. The engine never
+// uses floating point; scaling ticks to decimal prices is a client concern.
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  LIMIT = 1;
+  MARKET = 2;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ACCEPTED = 1;          // resting on the book, no fills
+  PARTIALLY_FILLED = 2;  // some fills, remainder resting
+  FILLED = 3;            // fully executed
+  CANCELED = 4;          // market order remainder canceled (nothing rests) or explicit cancel
+  REJECTED = 5;
+}
+
+// Mirrors me::RejectReason in include/me/types.h (same numeric values).
+enum RejectReason {
+  REJECT_REASON_NONE = 0;
+  INVALID_ORDER_ID = 1;     // order_id == 0
+  DUPLICATE_ORDER_ID = 2;   // order_id already open on this symbol
+  INVALID_QUANTITY = 3;     // quantity == 0
+  INVALID_PRICE = 4;        // limit price <= 0
+  PRICE_OUT_OF_RANGE = 5;   // limit price outside the book's configured band
+  UNKNOWN_SYMBOL = 6;
+  UNKNOWN_ORDER = 7;        // cancel target not found
+  BOOK_FULL = 8;            // order pool capacity exhausted
+  INVALID_SIDE = 9;
+  INVALID_ORDER_TYPE = 10;
+  WRONG_PARTITION = 11;     // symbol owned by another engine partition
+}
+
+message SubmitOrderRequest {
+  string symbol = 1;
+  uint64 order_id = 2;    // client-assigned, unique per symbol, non-zero
+  Side side = 3;
+  OrderType type = 4;
+  int64 price = 5;        // ticks; ignored for MARKET
+  uint32 quantity = 6;    // lots, > 0
+}
+
+message Fill {
+  uint64 sequence = 1;    // deterministic per-symbol execution sequence number
+  uint64 maker_order_id = 2;
+  uint64 taker_order_id = 3;
+  int64 price = 4;        // always the resting (maker) order's price
+  uint32 quantity = 5;
+}
+
+message ExecutionReport {
+  string symbol = 1;
+  uint64 order_id = 2;
+  OrderStatus status = 3;
+  RejectReason reject_reason = 4;
+  uint32 filled_quantity = 5;
+  uint32 remaining_quantity = 6;
+  repeated Fill fills = 7;
+  uint64 engine_timestamp_ns = 8;  // steady-clock ns when the shard finished processing
+}
+
+message CancelOrderRequest {
+  string symbol = 1;
+  uint64 order_id = 2;
+}
+
+message CancelOrderResponse {
+  string symbol = 1;
+  uint64 order_id = 2;
+  bool canceled = 3;
+  RejectReason reject_reason = 4;
+  uint32 canceled_quantity = 5;
+}
+
+message GetOrderBookRequest {
+  string symbol = 1;
+  uint32 depth = 2;  // max price levels per side; 0 = server default (10)
+}
+
+message PriceLevel {
+  int64 price = 1;
+  uint64 quantity = 2;    // total resting quantity at this price
+  uint32 order_count = 3;
+}
+
+message GetOrderBookResponse {
+  string symbol = 1;
+  repeated PriceLevel bids = 2;  // best (highest) first
+  repeated PriceLevel asks = 3;  // best (lowest) first
+  uint64 last_sequence = 4;
+}
+
+message GetBestBidAskRequest {
+  string symbol = 1;
+}
+
+message GetBestBidAskResponse {
+  string symbol = 1;
+  bool has_bid = 2;
+  int64 bid_price = 3;
+  uint64 bid_quantity = 4;
+  bool has_ask = 5;
+  int64 ask_price = 6;
+  uint64 ask_quantity = 7;
+}
+
+message ListSymbolsRequest {}
+
+message SymbolInfo {
+  string symbol = 1;
+  uint32 partition = 2;  // shard thread that exclusively owns this book
+}
+
+message ListSymbolsResponse {
+  repeated SymbolInfo symbols = 1;
+  uint32 partitions = 2;
+}
+
+// Client-streaming / bidirectional submission: each request is answered with
+// exactly one ExecutionReport in the same order. Used by the load tester to
+// measure batched throughput; semantics are identical to SubmitOrder.
+service MatchingEngine {
+  rpc SubmitOrder(SubmitOrderRequest) returns (ExecutionReport);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetOrderBook(GetOrderBookRequest) returns (GetOrderBookResponse);
+  rpc GetBestBidAsk(GetBestBidAskRequest) returns (GetBestBidAskResponse);
+  rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
+  rpc SubmitOrderStream(stream SubmitOrderRequest) returns (stream ExecutionReport);
+}
