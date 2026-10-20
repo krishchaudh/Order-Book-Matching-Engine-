@@ -10,7 +10,7 @@
                  │   GetOrderBook / BBA    ├──────────────▶ │  OrderBook[sym…]  │
                  │   SubmitOrderStream     │                └─ …                │
                  │                         ◀── completion (seq, status, fills)  │
-                 │  metrics thread: HTTP /metrics /readyz /livez (port 9100)    │
+                 │  metrics thread: HTTP /metrics /readyz /healthz (port 9100)    │
                  └──────────────────────────────────────────────────────────────┘
                            ▲ scrape                     ▲ probe
                      Prometheus / Grafana        Go health sidecar (:8081)

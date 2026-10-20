@@ -8,3 +8,5 @@ perf.data*
 results/*.tmp
 sidecar/healthsidecar
 .cache/
+results/perf/*.data
+results/server.log

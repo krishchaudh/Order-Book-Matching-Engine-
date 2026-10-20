@@ -36,7 +36,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build libgtest-dev
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DME_BUILD_GRPC=OFF -DME_BUILD_BENCHMARKS=OFF "-DME_SANITIZE=${{ matrix.san }}"
       - run: cmake --build build
-      - run: ./build/me_tests --gtest_brief=1
+      # setarch -R disables ASLR: TSan's shadow mapping fails on some kernels (6.x, high vm.mmap_rnd_bits) otherwise.
+      - run: setarch "$(uname -m)" -R ./build/me_tests --gtest_brief=1
         env: { TSAN_OPTIONS: "halt_on_error=1", UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1", ASAN_OPTIONS: "detect_leaks=1" }
   sidecar:
     runs-on: ubuntu-22.04

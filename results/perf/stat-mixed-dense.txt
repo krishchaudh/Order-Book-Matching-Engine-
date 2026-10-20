@@ -1,0 +1,24 @@
+# started on Tue Oct 20 19:57:07 2026
+
+
+ Performance counter stats for './build-prof/me_bench --ops=5000000 --trials=3 --pin=2 --quiet --workload=mixed --book=dense':
+
+           2527.38 msec task-clock                       #    0.999 CPUs utilized             
+   <not supported>      cycles                                                                
+   <not supported>      instructions                                                          
+   <not supported>      branches                                                              
+   <not supported>      branch-misses                                                         
+   <not supported>      cache-references                                                      
+   <not supported>      cache-misses                                                          
+   <not supported>      L1-dcache-loads                                                       
+   <not supported>      L1-dcache-load-misses                                                 
+   <not supported>      LLC-loads                                                             
+   <not supported>      LLC-load-misses                                                       
+   <not supported>      dTLB-load-misses                                                      
+
+       2.531134010 seconds time elapsed
+
+       2.254719000 seconds user
+       0.275993000 seconds sys
+
+

@@ -1,0 +1,12 @@
+# target=me-engine:50051 mode=unary channels=8 inflight=32 duration=10.0s warmup=2.0s symbols=4 mix=60/25/15 docker-unary
+ conc      req/s       ok/s    err% |  mean_us   p50_us   p90_us   p95_us   p99_us  p99.9us    max_us |    rej%    fills |  srv_cpu%   srv_rss
+    1      13721      13721   0.000 |     71.7     38.4     83.2    211.5    583.1   2783.4    8054.0 |    0.00    24431 |       133      33.6
+    8      50254      50254   0.000 |    158.1    118.1    183.4    247.6   1615.3   3321.5    8649.8 |    0.00    90082 |       278      49.9
+   32      37373      37373   0.000 |    854.3    567.4   2036.2   2760.1   4379.3   7709.0   18313.4 |    0.00    66607 |       355      68.6
+# target=me-engine:50051 mode=stream channels=8 inflight=32 duration=10.0s warmup=2.0s symbols=4 mix=60/25/15 docker-stream32
+ conc      req/s       ok/s    err% |  mean_us   p50_us   p90_us   p95_us   p99_us  p99.9us    max_us |    rej%    fills |  srv_cpu%   srv_rss
+    1      34357      34357   0.000 |    426.8    217.0    853.5   1926.0   3305.9   5382.4    8778.8 |    0.00    81256 |       165      93.3
+    4     152069     152069   0.000 |    558.7    357.3    868.8   1480.9   3839.0  13360.7   57646.3 |    0.00   361346 |       301     231.9
+# target=me-engine:50051 mode=stream channels=8 inflight=1 duration=10.0s warmup=2.0s symbols=4 mix=60/25/15 docker-stream1
+ conc      req/s       ok/s    err% |  mean_us   p50_us   p90_us   p95_us   p99_us  p99.9us    max_us |    rej%    fills |  srv_cpu%   srv_rss
+    4      46181      46181   0.000 |     81.0     48.9     86.8    113.9    960.9   3183.9    8987.3 |    0.00   109838 |       242     244.9

@@ -1,0 +1,60 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 8K of event 'task-clock:ppp'
+# Event count (approx.): 4434500000
+#
+# Overhead  Command   Shared Object         Symbol                                                                                                                                                                                                                                                                            
+# ........  ........  ....................  ..................................................................................................................................................................................................................................................................................
+#
+    46.53%  me_bench  me_bench              [.] Runner<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >::trial(me::EngineT<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >&, Stream const&, bool, std::vector<unsigned int, std::allocator<unsigned int> >&)
+            |
+            ---Runner<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >::trial(me::EngineT<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >&, Stream const&, bool, std::vector<unsigned int, std::allocator<unsigned int> >&)
+               Summary run_single<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, Stream const&, int)
+               int run_all<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&)
+               main
+               0x72f906829d90
+    18.25%  me_bench  me_bench              [.] me::OpenAddressOrderIndex::find(unsigned long) const
+            |
+            ---me::OpenAddressOrderIndex::find(unsigned long) const
+               |          
+               |--15.04%--Runner<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >::apply_all(me::EngineT<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >&, std::vector<Op, std::allocator<Op> > const&, std::vector<me::Trade, std::allocator<me::Trade> >&, Expected&)
+               |          Runner<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >::trial(me::EngineT<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >&, Stream const&, bool, std::vector<unsigned int, std::allocator<unsigned int> >&)
+               |          Summary run_single<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, Stream const&, int)
+               |          int run_all<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&)
+               |          main
+               |          0x72f906829d90
+               |          
+                --3.21%--Generator::apply(Op const&)
+                          Generator::insert_stream(unsigned long)
+                          int run_all<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&)
+                          main
+                          0x72f906829d90
+     6.21%  me_bench  [unknown]             [k] 0xffffffff8f8d6f70
+            |
+            ---0xffffffff8f8d6f70
+               0xffffffff90a32d23
+               0xffffffff90c00bc7
+               |          
+               |--3.01%--me::OpenAddressOrderIndex::insert(unsigned long, unsigned int) [clone .isra.0]
+               |          me::OpenAddressOrderIndex::insert(unsigned long, unsigned int) [clone .isra.0]
+               |          me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex>::submit(me::NewOrder const&, std::vector<me::Trade, std::allocator<me::Trade> >&)
+               |          |          
+               |          |--1.59%--Generator::apply(Op const&)
+               |          |          Generator::insert_stream(unsigned long)
+               |          |          int run_all<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&)
+               |          |          main
+               |          |          0x72f906829d90
+               |          |          
+               |           --1.42%--Runner<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >::apply_all(me::EngineT<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >&, std::vector<Op, std::allocator<Op> > const&, std::vector<me::Trade, std::allocator<me::Trade> >&, Expected&)
+               |                     Runner<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >::trial(me::EngineT<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >&, Stream const&, bool, std::vector<unsigned int, std::allocator<unsigned int> >&)
+               |                     Summary run_single<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, Stream const&, int)
+               |                     int run_all<me::OrderBookT<me::DenseLevelIndex, me::OpenAddressOrderIndex> >(Options const&)
+               |                     main
+               |                     0x72f906829d90
+               |          
+                --1.00%--me::OrderPool::allocate()
+     5.05%  me_bench  me_bench              [.] me::OpenAddressOrderIndex::insert(unsigned long, unsigned int) [clone .isra.0]
+            |
