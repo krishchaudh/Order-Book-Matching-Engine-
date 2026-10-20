@@ -1,0 +1,31 @@
+# Multi-stage build for the C++ matching engine (gRPC server, client, load tester).
+FROM ubuntu:22.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build pkg-config \
+      libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc \
+      libgtest-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY CMakeLists.txt ./
+COPY include include
+COPY src src
+COPY proto proto
+COPY benchmarks benchmarks
+COPY tests tests
+# -march=native is deliberately OFF for a portable image; set ME_NATIVE=ON
+# when building for the host that will run it.
+RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DME_BUILD_TESTS=ON -DME_BUILD_BENCHMARKS=ON \
+    && cmake --build build \
+    && ./build/me_tests --gtest_brief=1
+
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgrpc++1 libprotobuf23 curl && rm -rf /var/lib/apt/lists/* \
+    && useradd -r -u 10001 engine
+COPY --from=build /src/build/src/grpc/me_server /src/build/src/grpc/me_client /src/build/src/grpc/me_loadtest /src/build/me_bench /usr/local/bin/
+USER engine
+EXPOSE 50051 9100
+HEALTHCHECK --interval=5s --timeout=2s --retries=3 CMD curl -fs http://127.0.0.1:9100/readyz || exit 1
+# SIGTERM -> graceful shutdown (stop admitting, drain, stop shards).
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["me_server"]

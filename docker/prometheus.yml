@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+scrape_configs:
+  - job_name: matching-engine
+    static_configs:
+      - targets: ["engine-0:9100"]
+        labels: { partition: "0" }
+      - targets: ["engine-1:9100"]
+        labels: { partition: "1" }
+  - job_name: health-sidecar
+    static_configs:
+      - targets: ["engine-0:8081", "engine-1:8081"]
+  - job_name: envoy
+    metrics_path: /stats/prometheus
+    static_configs:
+      - targets: ["envoy:9901"]

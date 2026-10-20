@@ -111,8 +111,9 @@ class Service final : public mev1::MatchingEngine::Service {
     // its ShardMetrics; plain relaxed increments, no atomics RMW).
     for (uint32_t i = 0; i < se.shard_count(); ++i) {
       me::metrics::ShardMetrics* m = sm_[i].get();
+      me::Engine* eng = &se.engine(i);  // only touched from shard i's own thread
       bool timing = o.measure_latency;
-      hooks_.emplace_back([m, timing](const me::Request& r) {
+      hooks_.emplace_back([m, eng, timing](const me::Request& r) {
         m->operations.inc();
         if (r.type == me::RequestType::Submit) {
           m->orders_received.inc();
@@ -124,12 +125,11 @@ class Service final : public mev1::MatchingEngine::Service {
             for (auto& t : r.trades) vol += t.qty;
             m->volume_traded.inc(vol);
           }
-          if (r.submit_result.status == me::OrderStatus::Accepted || r.submit_result.status == me::OrderStatus::PartiallyFilled) m->active_orders.add(1);
-          m->active_orders.add(-static_cast<int64_t>(count_fully_filled_makers(r)));
         } else if (r.type == me::RequestType::Cancel) {
           m->cancels_received.inc();
-          if (r.cancel_result.ok) { m->orders_canceled.inc(); m->active_orders.add(-1); }
+          if (r.cancel_result.ok) m->orders_canceled.inc();
         }
+        m->active_orders.set(static_cast<int64_t>(eng->open_orders()));
         if (timing) m->matching_latency_ns.observe(static_cast<double>(r.engine_ns));
       });
     }
@@ -281,15 +281,6 @@ class Service final : public mev1::MatchingEngine::Service {
 
   static me::Side to_side(mev1::Side s) { return s == mev1::BUY ? me::Side::Buy : s == mev1::SELL ? me::Side::Sell : static_cast<me::Side>(0xFF); }
   static me::OrderType to_type(mev1::OrderType t) { return t == mev1::LIMIT ? me::OrderType::Limit : t == mev1::MARKET ? me::OrderType::Market : static_cast<me::OrderType>(0xFF); }
-
-  static uint32_t count_fully_filled_makers(const me::Request& r) {
-    // The book reports maker removal implicitly: a maker that is fully filled
-    // disappears. We can't see that from the trade list alone, so the shard
-    // hook keeps active_orders approximate under fills; the exact value is
-    // re-synced on every scrape from the book itself (see extra provider).
-    (void)r;
-    return 0;
-  }
 
   Status resolve(const std::string& symbol, me::SymbolRef& ref) {
     if (!accepting_.load(std::memory_order_acquire)) return Status(StatusCode::UNAVAILABLE, "engine shutting down");

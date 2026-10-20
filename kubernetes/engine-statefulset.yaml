@@ -1,0 +1,93 @@
+# Matching engine partitions as a StatefulSet.
+#
+# Ownership model: pod ordinal i owns partition i of N (N = spec.replicas and
+# ME_PARTITION_COUNT must agree). Each pod registers only the symbols whose
+# FNV-1a hash maps to its partition, so exactly one pod matches any symbol.
+# There is deliberately NO Deployment with interchangeable replicas: two
+# replicas of the same book would diverge.
+#
+# Scaling: change replicas AND ME_PARTITION_COUNT together (symbol->partition
+# mapping changes, open orders are not migrated -- see docs/ARCHITECTURE.md
+# "Limitations"). Horizontal autoscaling of partitions is therefore a manual,
+# planned operation; the HPA below only scales the stateless Envoy tier.
+apiVersion: v1
+kind: Namespace
+metadata: { name: matching-engine }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: engine-config, namespace: matching-engine }
+data:
+  ME_SYMBOLS: "AAPL,MSFT,GOOG,AMZN,TSLA,NVDA,META,BRK,NFLX,AMD,INTC,ORCL"
+  ME_PARTITION_COUNT: "2"
+  ME_SHARDS: "2"
+---
+apiVersion: v1
+kind: Service
+metadata: { name: engine, namespace: matching-engine }
+spec:
+  clusterIP: None            # headless: stable per-partition DNS engine-<i>.engine
+  publishNotReadyAddresses: false
+  selector: { app: engine }
+  ports:
+    - { name: grpc, port: 50051 }
+    - { name: metrics, port: 9100 }
+    - { name: sidecar, port: 8081 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: engine, namespace: matching-engine }
+spec:
+  serviceName: engine
+  replicas: 2
+  podManagementPolicy: Parallel
+  updateStrategy: { type: RollingUpdate }
+  selector: { matchLabels: { app: engine } }
+  template:
+    metadata:
+      labels: { app: engine }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "9100" }
+    spec:
+      terminationGracePeriodSeconds: 15
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: engine
+          image: matching-engine:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          # Derive partition index from the pod ordinal.
+          args:
+            - |
+              ORD=${HOSTNAME##*-}
+              exec me_server --partition=${ORD}/${ME_PARTITION_COUNT} --shards=${ME_SHARDS} --metrics-port=9100
+          envFrom: [{ configMapRef: { name: engine-config } }]
+          ports:
+            - { name: grpc, containerPort: 50051 }
+            - { name: metrics, containerPort: 9100 }
+          resources:
+            requests: { cpu: "2", memory: 1Gi }
+            limits: { cpu: "3", memory: 2Gi }
+          # Engine-native probes; the sidecar adds stall detection on top.
+          startupProbe: { httpGet: { path: /readyz, port: metrics }, periodSeconds: 1, failureThreshold: 30 }
+          readinessProbe: { httpGet: { path: /readyz, port: metrics }, periodSeconds: 2, failureThreshold: 2 }
+          livenessProbe: { httpGet: { path: /livez, port: metrics }, periodSeconds: 5, failureThreshold: 3 }
+          lifecycle:
+            # Let Envoy/endpoints observe NotReady before SIGTERM drains RPCs.
+            preStop: { exec: { command: ["sleep", "2"] } }
+        - name: health-sidecar
+          image: matching-engine-sidecar:local
+          imagePullPolicy: IfNotPresent
+          args: ["--engine=http://127.0.0.1:9100", "--grpc=127.0.0.1:50051", "--listen=:8081", "--stall-after=15s"]
+          ports: [{ name: sidecar, containerPort: 8081 }]
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          readinessProbe: { httpGet: { path: /readyz, port: sidecar }, periodSeconds: 2 }
+          livenessProbe: { httpGet: { path: /livez, port: sidecar }, periodSeconds: 5, failureThreshold: 2 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: engine, namespace: matching-engine }
+spec:
+  maxUnavailable: 1
+  selector: { matchLabels: { app: engine } }

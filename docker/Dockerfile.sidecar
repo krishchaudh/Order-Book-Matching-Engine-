@@ -1,0 +1,10 @@
+FROM golang:1.22 AS build
+WORKDIR /src
+COPY sidecar/go.mod ./
+COPY sidecar/*.go ./
+RUN CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /healthsidecar .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /healthsidecar /healthsidecar
+EXPOSE 8081
+ENTRYPOINT ["/healthsidecar"]

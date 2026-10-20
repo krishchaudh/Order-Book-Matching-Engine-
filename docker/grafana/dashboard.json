@@ -1,0 +1,310 @@
+{
+ "title": "Matching Engine",
+ "uid": "matching-engine",
+ "schemaVersion": 39,
+ "refresh": "5s",
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "timeseries",
+   "title": "Engine operations/sec (per shard)",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum by (instance, shard) (rate(me_operations_total{shard!=\"all\"}[30s]))",
+     "legendFormat": "{{instance}} shard {{shard}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "type": "timeseries",
+   "title": "gRPC requests/sec and errors",
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum by (instance) (rate(me_grpc_requests_total[30s]))",
+     "legendFormat": "{{instance}} req/s",
+     "refId": "A"
+    },
+    {
+     "expr": "sum by (instance) (rate(me_grpc_errors_total[30s]))",
+     "legendFormat": "{{instance}} errors/s",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "type": "timeseries",
+   "title": "Matching latency (in-book) p50/p99/p99.9",
+   "gridPos": {
+    "x": 0,
+    "y": 8,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ns"
+    }
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(me_matching_latency_ns_bucket[1m])))",
+     "legendFormat": "p50",
+     "refId": "A"
+    },
+    {
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(me_matching_latency_ns_bucket[1m])))",
+     "legendFormat": "p99",
+     "refId": "B"
+    },
+    {
+     "expr": "histogram_quantile(0.999, sum by (le) (rate(me_matching_latency_ns_bucket[1m])))",
+     "legendFormat": "p99.9",
+     "refId": "C"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "type": "timeseries",
+   "title": "gRPC handler latency p50/p99/p99.9",
+   "gridPos": {
+    "x": 12,
+    "y": 8,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ns"
+    }
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(me_grpc_latency_ns_bucket[1m])))",
+     "legendFormat": "p50",
+     "refId": "A"
+    },
+    {
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(me_grpc_latency_ns_bucket[1m])))",
+     "legendFormat": "p99",
+     "refId": "B"
+    },
+    {
+     "expr": "histogram_quantile(0.999, sum by (le) (rate(me_grpc_latency_ns_bucket[1m])))",
+     "legendFormat": "p99.9",
+     "refId": "C"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "Orders: received / accepted / rejected / canceled per sec",
+   "gridPos": {
+    "x": 0,
+    "y": 16,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(me_orders_received_total{shard=\"all\"}[30s]))",
+     "legendFormat": "received",
+     "refId": "A"
+    },
+    {
+     "expr": "sum(rate(me_orders_accepted_total{shard=\"all\"}[30s]))",
+     "legendFormat": "accepted",
+     "refId": "B"
+    },
+    {
+     "expr": "sum(rate(me_orders_rejected_total{shard=\"all\"}[30s]))",
+     "legendFormat": "rejected",
+     "refId": "C"
+    },
+    {
+     "expr": "sum(rate(me_orders_canceled_total{shard=\"all\"}[30s]))",
+     "legendFormat": "canceled",
+     "refId": "D"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "Trades/sec and volume/sec",
+   "gridPos": {
+    "x": 12,
+    "y": 16,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(me_trades_executed_total{shard=\"all\"}[30s]))",
+     "legendFormat": "trades",
+     "refId": "A"
+    },
+    {
+     "expr": "sum(rate(me_volume_traded_total{shard=\"all\"}[30s]))",
+     "legendFormat": "volume",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "Active orders / symbols",
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum by (instance) (me_active_orders{shard=\"all\"})",
+     "legendFormat": "{{instance}} active orders",
+     "refId": "A"
+    },
+    {
+     "expr": "sum(me_symbols)",
+     "legendFormat": "symbols",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "Book depth (price levels)",
+   "gridPos": {
+    "x": 12,
+    "y": 24,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "targets": [
+    {
+     "expr": "me_book_depth_levels",
+     "legendFormat": "{{symbol}} {{side}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Engine CPU (cores) and RSS",
+   "gridPos": {
+    "x": 0,
+    "y": 32,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "targets": [
+    {
+     "expr": "rate(process_cpu_seconds_total{job=\"matching-engine\"}[30s])",
+     "legendFormat": "{{instance}} cpu cores",
+     "refId": "A"
+    },
+    {
+     "expr": "process_resident_memory_bytes{job=\"matching-engine\"} / 1e9",
+     "legendFormat": "{{instance}} rss GB",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Sidecar: engine live/ready/stalled",
+   "gridPos": {
+    "x": 12,
+    "y": 32,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "targets": [
+    {
+     "expr": "sidecar_engine_live",
+     "legendFormat": "{{instance}} live",
+     "refId": "A"
+    },
+    {
+     "expr": "sidecar_engine_ready",
+     "legendFormat": "{{instance}} ready",
+     "refId": "B"
+    },
+    {
+     "expr": "sidecar_engine_stalled",
+     "legendFormat": "{{instance}} stalled",
+     "refId": "C"
+    }
+   ]
+  }
+ ],
+ "templating": {
+  "list": []
+ }
+}

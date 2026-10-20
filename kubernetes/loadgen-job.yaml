@@ -1,0 +1,25 @@
+# In-cluster load generation against partition 0 directly (pod network) and
+# through Envoy. Results are printed to the job log.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: loadgen, namespace: matching-engine }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loadgen
+          image: matching-engine:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -x
+              # Symbols owned by partition 0 (fnv1a % 2 == 0) in the default list; adjust if ME_SYMBOLS changes.
+              me_loadtest --target=engine-0.engine:50051 --symbols=$OWNED_SYMBOLS --mode=unary --concurrency=1,4,16 --duration=10 --warmup=2 --metrics=engine-0.engine:9100 --label=k8s-pod-direct
+              me_loadtest --target=engine-0.engine:50051 --symbols=$OWNED_SYMBOLS --mode=stream --concurrency=1,4 --duration=10 --warmup=2 --metrics=engine-0.engine:9100 --label=k8s-pod-direct
+              me_loadtest --target=envoy:8080 --symbols=$OWNED_SYMBOLS --mode=unary --concurrency=1,4,16 --duration=10 --warmup=2 --metrics=engine-0.engine:9100 --label=k8s-via-envoy
+          env:
+            - { name: OWNED_SYMBOLS, value: "AAPL" }
+          resources: { requests: { cpu: "1", memory: 256Mi }, limits: { cpu: "2", memory: 512Mi } }

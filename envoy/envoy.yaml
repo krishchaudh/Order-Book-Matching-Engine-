@@ -1,0 +1,86 @@
+# Envoy front door for the matching engine.
+#
+# Routing model: each engine partition exclusively owns a deterministic subset
+# of symbols (FNV-1a(symbol) % partitions). Envoy therefore must NOT spread a
+# symbol's orders across partitions. Two routing paths are configured:
+#   1. x-me-partition: <n> header  -> routed to that partition's cluster
+#      (the client computes n = fnv1a64(symbol) % partitions; see
+#      include/me/sharded_engine.h partition_of()).
+#   2. no header -> round-robin over all partitions; a mis-routed request is
+#      refused by the engine with FAILED_PRECONDITION (WRONG_PARTITION), it is
+#      never silently matched on the wrong book.
+# Health-aware: active gRPC health checks (grpc.health.v1) + outlier ejection
+# remove partitions that stop answering; there is no fail-over to another
+# copy of a book because no such copy exists (see docs/ARCHITECTURE.md).
+static_resources:
+  listeners:
+    - name: grpc_ingress
+      address: { socket_address: { address: 0.0.0.0, port_value: 8080 } }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: grpc_ingress
+                codec_type: HTTP2
+                stream_idle_timeout: 300s
+                http2_protocol_options: { max_concurrent_streams: 1000, initial_stream_window_size: 1048576 }
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config: { "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog }
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: matching_engine
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/me.v1.MatchingEngine/", headers: [{ name: x-me-partition, string_match: { exact: "0" } }] }
+                          route: { cluster: engine_p0, timeout: 5s }
+                        - match: { prefix: "/me.v1.MatchingEngine/", headers: [{ name: x-me-partition, string_match: { exact: "1" } }] }
+                          route: { cluster: engine_p1, timeout: 5s }
+                        - match: { prefix: "/me.v1.MatchingEngine/" }
+                          route: { cluster: engine_any, timeout: 5s }
+                        - match: { prefix: "/grpc.health.v1.Health/" }
+                          route: { cluster: engine_any, timeout: 2s }
+                http_filters:
+                  - name: envoy.filters.http.grpc_stats
+                    typed_config: { "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_stats.v3.FilterConfig, emit_filter_state: true, stats_for_all_methods: true }
+                  - name: envoy.filters.http.router
+                    typed_config: { "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router }
+  clusters:
+    - &engine_cluster
+      name: engine_p0
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      connect_timeout: 1s
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config: { http2_protocol_options: { max_concurrent_streams: 1000 } }
+      circuit_breakers: { thresholds: [{ priority: DEFAULT, max_connections: 1024, max_pending_requests: 4096, max_requests: 8192 }] }
+      health_checks:
+        - timeout: 1s
+          interval: 2s
+          unhealthy_threshold: 2
+          healthy_threshold: 1
+          grpc_health_check: {}
+      outlier_detection: { consecutive_5xx: 5, consecutive_gateway_failure: 3, interval: 5s, base_ejection_time: 10s, max_ejection_percent: 100 }
+      upstream_connection_options: { tcp_keepalive: { keepalive_probes: 3, keepalive_time: 30, keepalive_interval: 5 } }
+      load_assignment:
+        cluster_name: engine_p0
+        endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: engine-0, port_value: 50051 } } } }] }]
+    - <<: *engine_cluster
+      name: engine_p1
+      load_assignment:
+        cluster_name: engine_p1
+        endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: engine-1, port_value: 50051 } } } }] }]
+    - <<: *engine_cluster
+      name: engine_any
+      load_assignment:
+        cluster_name: engine_any
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: engine-0, port_value: 50051 } } }
+              - endpoint: { address: { socket_address: { address: engine-1, port_value: 50051 } } }
+admin:
+  address: { socket_address: { address: 0.0.0.0, port_value: 9901 } }

@@ -1,0 +1,109 @@
+# Stateless gRPC front door. Scales horizontally (HPA) independently of the
+# engine partitions. Routes by x-me-partition header or round-robin; see
+# envoy/envoy.yaml for the routing contract.
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: envoy-config, namespace: matching-engine }
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+        - name: grpc_ingress
+          address: { socket_address: { address: 0.0.0.0, port_value: 8080 } }
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: grpc_ingress
+                    codec_type: HTTP2
+                    route_config:
+                      name: local_route
+                      virtual_hosts:
+                        - name: matching_engine
+                          domains: ["*"]
+                          routes:
+                            - match: { prefix: "/", headers: [{ name: x-me-partition, string_match: { exact: "0" } }] }
+                              route: { cluster: engine_p0, timeout: 5s }
+                            - match: { prefix: "/", headers: [{ name: x-me-partition, string_match: { exact: "1" } }] }
+                              route: { cluster: engine_p1, timeout: 5s }
+                            - match: { prefix: "/" }
+                              route: { cluster: engine_any, timeout: 5s }
+                    http_filters:
+                      - name: envoy.filters.http.grpc_stats
+                        typed_config: { "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_stats.v3.FilterConfig, stats_for_all_methods: true }
+                      - name: envoy.filters.http.router
+                        typed_config: { "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router }
+      clusters:
+        - name: engine_p0
+          type: STRICT_DNS
+          connect_timeout: 1s
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config: { http2_protocol_options: {} }
+          health_checks: [{ timeout: 1s, interval: 2s, unhealthy_threshold: 2, healthy_threshold: 1, grpc_health_check: {} }]
+          load_assignment: { cluster_name: engine_p0, endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: engine-0.engine.matching-engine.svc.cluster.local, port_value: 50051 } } } }] }] }
+        - name: engine_p1
+          type: STRICT_DNS
+          connect_timeout: 1s
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config: { http2_protocol_options: {} }
+          health_checks: [{ timeout: 1s, interval: 2s, unhealthy_threshold: 2, healthy_threshold: 1, grpc_health_check: {} }]
+          load_assignment: { cluster_name: engine_p1, endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: engine-1.engine.matching-engine.svc.cluster.local, port_value: 50051 } } } }] }] }
+        - name: engine_any
+          type: STRICT_DNS
+          connect_timeout: 1s
+          lb_policy: ROUND_ROBIN
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config: { http2_protocol_options: {} }
+          health_checks: [{ timeout: 1s, interval: 2s, unhealthy_threshold: 2, healthy_threshold: 1, grpc_health_check: {} }]
+          load_assignment:
+            cluster_name: engine_any
+            endpoints:
+              - lb_endpoints:
+                  - endpoint: { address: { socket_address: { address: engine-0.engine.matching-engine.svc.cluster.local, port_value: 50051 } } }
+                  - endpoint: { address: { socket_address: { address: engine-1.engine.matching-engine.svc.cluster.local, port_value: 50051 } } }
+    admin:
+      address: { socket_address: { address: 0.0.0.0, port_value: 9901 } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: envoy, namespace: matching-engine }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: envoy } }
+  template:
+    metadata:
+      labels: { app: envoy }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "9901", prometheus.io/path: /stats/prometheus }
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.29-latest
+          args: ["-c", "/etc/envoy/envoy.yaml", "--concurrency", "2"]
+          ports: [{ name: grpc, containerPort: 8080 }, { name: admin, containerPort: 9901 }]
+          volumeMounts: [{ name: cfg, mountPath: /etc/envoy, readOnly: true }]
+          readinessProbe: { httpGet: { path: /ready, port: admin }, periodSeconds: 2 }
+          resources: { requests: { cpu: 500m, memory: 128Mi }, limits: { cpu: "2", memory: 512Mi } }
+      volumes: [{ name: cfg, configMap: { name: envoy-config } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: envoy, namespace: matching-engine }
+spec:
+  selector: { app: envoy }
+  ports: [{ name: grpc, port: 8080, targetPort: 8080 }, { name: admin, port: 9901 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: envoy, namespace: matching-engine }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: envoy }
+  minReplicas: 1
+  maxReplicas: 4
+  metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } } }]
